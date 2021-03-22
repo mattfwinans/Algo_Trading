@@ -1,0 +1,168 @@
+
+api_key = 'INPUT API KEY HERE'
+secret_key = 'INPUT SECRET KEY HERE'
+base_url = 'https://api.alpaca.markets' # or base_url = 'https://paper-api.alpaca.markets' for paper trading 
+
+
+def My_Portfolio():
+    api = tradeapi.REST(
+        api_key,
+        secret_key,
+        base_url)
+    portfolio_pos = api.list_positions()
+    Stocks = list()
+    QTY = list()
+    portfolio = pd.DataFrame()
+    for position in portfolio_pos:
+        Stocks.append(position.symbol)
+        QTY.append(position.qty)
+        portfolio_str = pd.DataFrame(np.column_stack([Stocks, QTY]),columns=['Stocks', 'QTY'])
+        portfolio = portfolio_str.astype({'QTY': 'float'})
+    return portfolio
+    
+    
+    def create_first_order(pred_price, symbol, orig_dataset, test_loss, minmax):
+    BASE_URL = 'https://api.alpaca.markets'
+    API_KEY = api_key
+    SECRET_KEY = secret_key
+    ORDERS_URL = '{}/v2/orders'.format(BASE_URL)
+    HEADERS = {'APCA-API-KEY-ID':API_KEY,'APCA-API-SECRET-KEY':SECRET_KEY}
+    low, high = pred_price
+    QTY = str(round((1/test_loss)/100))
+    if low > orig_dataset[2][-1] and high > orig_dataset[1][-1]:
+            order = {
+              "side": "buy",
+              "symbol": symbol,
+              "type": "market",
+              "qty": QTY,
+              "time_in_force": "gtc",
+              "order_class": "bracket",
+              "take_profit": {
+                "limit_price": str(high + 0.01)
+              },
+                "stop_loss": {
+                    "stop_price": str(orig_dataset[2].rolling(20).mean().mean()),
+                    "limit_price": str(orig_dataset[2].rolling(20).mean().mean())
+                }
+            }
+            r = requests.post(ORDERS_URL, json = order,headers = HEADERS)
+            print('First Purchase', r.content)
+    else:
+        print('No Action')
+        
+        
+        
+        
+def create_order(pred_price, symbol, orig_dataset, test_loss, minmax, portfolio):
+    BASE_URL = 'https://api.alpaca.markets'
+    API_KEY = api_key
+    SECRET_KEY = secret_key
+    ORDERS_URL = '{}/v2/orders'.format(BASE_URL)
+    HEADERS = {'APCA-API-KEY-ID':API_KEY,'APCA-API-SECRET-KEY':SECRET_KEY}
+    low, high = pred_price
+    QTY = str(round((1/test_loss)/100))
+    control_portfolio = portfolio[portfolio['QTY'] > 15]
+    if low > orig_dataset[2][-1] and high > orig_dataset[1][-1] and symbol not in list(control_portfolio['Stocks']):
+        order = {
+              "side": "buy",
+              "symbol": symbol,
+              "type": "market",
+              "qty": QTY,
+              "time_in_force": "gtc",
+              "order_class": "bracket",
+              "take_profit": {
+                "limit_price": str(high + 0.01)
+              },
+
+            "stop_loss": {
+                "stop_price": str(orig_dataset[2].rolling(20).mean().mean()),
+                "limit_price": str(orig_dataset[2].rolling(20).mean().mean())
+                }
+            }
+        r = requests.post(ORDERS_URL, json = order,headers = HEADERS)
+        print('BUY', r.content)
+    elif low < orig_dataset[2][-1] and high < orig_dataset[1][-1] and symbol in list(portfolio['Stocks']):
+        order = {
+            'symbol':symbol,
+            'qty': QTY, 
+            'side': 'sell',
+            'type':'market',
+            'time_in_force':'gtc',
+                }
+        r = requests.post(ORDERS_URL, json = order,headers = HEADERS)
+        print('SELL', r.content)
+    else:
+        print('No Action')
+        
+        
+        
+def Order_bulk():
+    tickers = top_tickers()
+    data_len= 59
+    seq_len=1
+    for ticker in tickers:
+        X, y, n_features, minmax, n_steps, close, open_, high, low, volume, dataset, data, SMA, orig_dataset = data_setup(ticker, data_len,seq_len)
+        X_train, X_test, y_train, y_test= train_test_setup(X,y)
+        optimizer = 'adam'
+        loss='mse'
+        model = initialize_network(n_steps,n_features,optimizer)
+        epochs=100
+        history = train_model(X_train,y_train,model,epochs)
+        model = load_keras_model(model,loss,optimizer)
+        model,eval_test_loss, test_loss = evaluation(X_test, y_test,X_train, y_train,history,model,optimizer,loss)
+        pred_price, appro_loss, pred_data = market_predict(model,minmax,seq_len,n_features,n_steps,data,test_loss)
+        portfolio = My_Portfolio()
+#         create_first_order(pred_price, ticker, orig_dataset, test_loss, minmax)
+#         create_order(pred_price, ticker, orig_dataset, test_loss, minmax, portfolio)
+        
+        
+        
+def Account_info():
+
+    # First, open the API connection
+    api = tradeapi.REST(
+        api_key,
+        secret_key,
+        base_url
+    )
+    
+    # Get account info
+    account = api.get_account()
+
+    # Check our current balance vs. our balance at the last market close
+    balance_change = float(account.equity) - float(account.last_equity)
+    print(f'Today\'s portfolio balance change: ${balance_change}')
+    
+    if account.trading_blocked:
+        print('Account is currently restricted from trading.')
+
+    # Check how much money we can use to open new positions.
+    print('${} is available as buying power.'.format(account.buying_power))
+    
+    portfolio = api.list_positions()
+
+    Stocks = list()
+    QTY = list()
+    Price = list()
+    MKT_VAL = list()
+    Profit_Loss = list()
+
+    for position in portfolio:
+        Stocks.append(position.symbol)
+        QTY.append(position.qty)
+        Price.append(position.current_price)
+        MKT_VAL.append(position.market_value)
+        Profit_Loss.append(position.unrealized_pl)
+
+        Positions = pd.DataFrame(np.column_stack([Stocks, QTY, Price, MKT_VAL, Profit_Loss]),columns=['Stocks', 'QTY', 'Price', 'Market_Value', 'Profit_Loss'])
+
+    print('Input Risk Free Rate:')
+    risk_free_rate = float(input())
+    portfolio = api.get_portfolio_history()
+    Sharpe_ratio = ((portfolio.equity[-1] / portfolio.equity[0] - 1) - risk_free_rate) / np.std(portfolio.profit_loss_pct)
+    print('Sharpe Ratio: {}'.format(Sharpe_ratio))
+    
+
+    return Sharpe_ratio, Positions
+        
+        
